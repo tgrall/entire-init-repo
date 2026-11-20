@@ -1,0 +1,36 @@
+[tools]
+# Keep aligned with the `go` directive in go.mod.
+go = { version = "1.27.3" }
+
+[tasks.fmt]
+description = "Run gofmt"
+run = "gofmt -s -w ."
+
+[tasks.test]
+description = "Run tests"
+run = "go test ./..."
+
+[tasks.lint]
+description = "Check Go formatting and static analysis"
+run = """
+set -e
+unformatted=$(gofmt -l -s .)
+if [ -n "$unformatted" ]; then
+  echo "unformatted files:"
+  echo "$unformatted"
+  exit 1
+fi
+go vet ./...
+"""
+
+[tasks.build]
+description = "Build the plugin binary"
+run = "CGO_ENABLED=0 go build -trimpath -o entire-init ./cmd/entire-init"
+
+[tasks.install]
+description = "Build and install the plugin into the local Entire CLI (entire init)"
+run = "scripts/install-local.sh"
+
+[tasks.check]
+description = "Run formatting, linting, tests, and build"
+depends = ["lint", "test", "build"]
