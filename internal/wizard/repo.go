@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-init/internal/detect"
 	"github.com/entireio/entire-init/internal/hostcli"
@@ -251,31 +252,79 @@ func (w *Wizard) createRepo(ctx context.Context) error {
 		}
 	}
 
+	ref := "/et/" + project + "/" + name
+
+	// A repo with this name may already exist, typically from an earlier run
+	// that created it and then stopped. Creating again would fail, so offer
+	// to link it instead.
+	if existing, err := w.Client.RepoView(ctx, ref); err == nil {
+		w.Out.Info("%s already exists on Entire.", ui.Bold(ref))
+		link, err := w.P.Confirm("Link this repository to the existing "+ref+"?",
+			"Adds it as a git remote and pushes the current branch. Choose No to pick another name with: entire init --repo-name <name>", true)
+		if err != nil {
+			return err
+		}
+		if !link {
+			w.record(stepRepo, StatusSkipped, ref+" already exists; not linked")
+			return nil
+		}
+		return w.linkNativeRepo(ctx, ref, primaryCloneURL(existing), "linked existing "+ref)
+	}
+
 	w.announce(fmt.Sprintf("entire repo create %s --project %s --visibility %s", name, project, visibility))
 	created, err := w.Client.RepoCreate(ctx, name, project, visibility)
 	if err != nil {
-		w.record(stepRepo, StatusFailed, errSummary(err))
-		w.Out.Fail("Creating the repository failed: %v", errSummary(err))
-		return nil
+		// The create may have gone through even though the command failed
+		// (e.g. the readiness wait timed out). If the repo exists, carry on.
+		if w.Opts.DryRun {
+			w.record(stepRepo, StatusFailed, errSummary(err))
+			return nil
+		}
+		v, verr := w.Client.RepoView(ctx, ref)
+		if verr != nil {
+			w.record(stepRepo, StatusFailed, errSummary(err))
+			w.Out.Fail("Creating the repository failed: %v", errSummary(err))
+			return nil
+		}
+		w.Out.Warn("repo create reported an error, but %s exists: %v", ref, errSummary(err))
+		return w.linkNativeRepo(ctx, ref, primaryCloneURL(v), "created "+ref)
 	}
-	ref := created.Path
+	if created.Path != "" {
+		ref = created.Path
+	}
 	w.done("Created %s", ui.Bold(ref))
+	return w.linkNativeRepo(ctx, ref, created.Remote, "created "+ref)
+}
 
-	// Wire a git remote. Prefer origin when there is none; never clobber a
-	// GitHub (or other) origin.
-	remote, override := "origin", false
+// linkNativeRepo points a git remote at a native Entire repo, pushes the
+// current branch, and records the result. cloneURL is the repo's entire://
+// URL when known; with it the remote is written directly with git, which
+// avoids `entire repo remote add`'s by-name lookup. That lookup can briefly
+// miss a repository created moments earlier.
+func (w *Wizard) linkNativeRepo(ctx context.Context, ref, cloneURL, detail string) error {
+	// Prefer origin when there is none; never clobber a GitHub (or other)
+	// origin.
+	remote, exists := "origin", false
 	if detect.RemoteURL(ctx, w.root, "origin") != "" {
 		remote = "entire"
-		override = detect.RemoteURL(ctx, w.root, "entire") != ""
+		exists = detect.RemoteURL(ctx, w.root, "entire") != ""
 	}
-	cmd := fmt.Sprintf("entire repo remote add %s %s", remote, ref)
-	if override {
-		cmd += " --override"
+
+	var err error
+	if validEntireURL(cloneURL) {
+		verb := "add"
+		if exists {
+			verb = "set-url"
+		}
+		w.announce(fmt.Sprintf("git remote %s %s %s", verb, remote, cloneURL))
+		_, err = w.Client.Git(ctx, hostcli.Capture, true, "remote", verb, remote, cloneURL)
+	} else {
+		err = w.remoteAddWithRetry(ctx, remote, ref, exists)
 	}
-	w.announce(cmd)
-	if err := w.Client.RemoteAdd(ctx, remote, ref, override); err != nil {
-		w.record(stepRepo, StatusFailed, "created "+ref+" but adding the remote failed")
+	if err != nil {
+		w.record(stepRepo, StatusFailed, detail+" but adding the remote failed")
 		w.Out.Fail("Adding the %s remote failed: %v", remote, errSummary(err))
+		w.Out.Info("Retry with %s, then %s.", ui.Code("entire repo remote add "+remote+" "+ref), ui.Code("git push -u "+remote+" HEAD"))
 		return nil
 	}
 	w.done("Remote %s → %s", ui.Code(remote), ref)
@@ -302,12 +351,79 @@ func (w *Wizard) createRepo(ctx context.Context) error {
 			w.setRepo(&v, ref, remote == "origin")
 		}
 	}
-	detail := "created " + ref
 	if !pushed && w.hasCommits && !w.Opts.DryRun {
 		detail += " (not pushed)"
 	}
 	w.record(stepRepo, StatusDone, detail)
 	return nil
+}
+
+// remoteAddDelays spaces the retries of `entire repo remote add` while a new
+// repository becomes resolvable by name (about 30s in total).
+var remoteAddDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second}
+
+// sleep waits for d or until ctx is done; swappable in tests.
+var sleep = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func (w *Wizard) remoteAddWithRetry(ctx context.Context, remote, ref string, override bool) error {
+	cmd := fmt.Sprintf("entire repo remote add %s %s", remote, ref)
+	if override {
+		cmd += " --override"
+	}
+	w.announce(cmd)
+	for i := 0; ; i++ {
+		err := w.Client.RemoteAdd(ctx, remote, ref, override)
+		if err == nil || !isNotFoundYet(err) || i >= len(remoteAddDelays) {
+			return err
+		}
+		w.Out.Info("%s is not resolvable yet; retrying in %s…", ref, remoteAddDelays[i])
+		if serr := sleep(ctx, remoteAddDelays[i]); serr != nil {
+			return serr
+		}
+	}
+}
+
+// isNotFoundYet matches the CLI's by-name miss, which right after a create
+// usually means "not propagated yet" rather than "does not exist".
+func isNotFoundYet(err error) bool {
+	var exitErr *hostcli.ExitError
+	return errors.As(err, &exitErr) && strings.Contains(exitErr.Stderr, "not found or not shared")
+}
+
+// validEntireURL accepts entire://<host>/<path> with a plain host. The
+// host is written into .git/config and dialled with repo credentials, so
+// anything that could smuggle userinfo ("real@evil") is refused.
+func validEntireURL(u string) bool {
+	rest, ok := strings.CutPrefix(u, "entire://")
+	if !ok {
+		return false
+	}
+	host, path, ok := strings.Cut(rest, "/")
+	return ok && host != "" && path != "" && !strings.ContainsAny(host, "@ \t\n")
+}
+
+// primaryCloneURL picks the clone URL of a repo's primary placement.
+func primaryCloneURL(v hostcli.RepoView) string {
+	for _, p := range v.Placements {
+		if p.Role == "primary" && p.CloneURL != "" {
+			return p.CloneURL
+		}
+	}
+	for _, p := range v.Placements {
+		if p.CloneURL != "" {
+			return p.CloneURL
+		}
+	}
+	return ""
 }
 
 func (w *Wizard) pickProject(ctx context.Context) (string, error) {

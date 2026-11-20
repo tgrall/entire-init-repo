@@ -126,6 +126,7 @@ type Placement struct {
 	ClusterSlug  string `json:"clusterSlug"`
 	Jurisdiction string `json:"jurisdiction"`
 	Status       string `json:"status"`
+	Role         string `json:"role"` // "primary" for a native repo's home placement
 	CloneURL     string `json:"cloneUrl"`
 }
 

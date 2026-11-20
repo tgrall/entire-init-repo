@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-init/internal/detect"
 	"github.com/entireio/entire-init/internal/hostcli"
@@ -19,7 +20,10 @@ import (
 // mutate (push) are recorded and succeed without running.
 type fakeRunner struct {
 	responses map[string]response
-	calls     []hostcli.Cmd
+	// queue holds per-prefix response sequences, consumed in order; the
+	// last one repeats. Checked before responses.
+	queue map[string][]response
+	calls []hostcli.Cmd
 }
 
 type response struct {
@@ -31,21 +35,34 @@ type response struct {
 func (f *fakeRunner) Run(_ context.Context, c hostcli.Cmd) (hostcli.Result, error) {
 	f.calls = append(f.calls, c)
 	key := c.Name + " " + strings.Join(c.Args, " ")
-	best := ""
-	for k := range f.responses {
-		if strings.HasPrefix(key, k) && len(k) > len(best) {
-			best = k
+	var r response
+	if qk := longestPrefix(key, f.queue); qk != "" {
+		r = f.queue[qk][0]
+		if len(f.queue[qk]) > 1 {
+			f.queue[qk] = f.queue[qk][1:]
 		}
-	}
-	r, ok := f.responses[best]
-	if !ok {
-		return hostcli.Result{}, nil
+	} else {
+		best := longestPrefix(key, f.responses)
+		var ok bool
+		if r, ok = f.responses[best]; !ok {
+			return hostcli.Result{}, nil
+		}
 	}
 	res := hostcli.Result{Stdout: []byte(r.stdout), Stderr: []byte(r.stderr), ExitCode: r.exit}
 	if r.exit != 0 {
 		return res, &hostcli.ExitError{Cmd: c, ExitCode: r.exit, Stderr: r.stderr}
 	}
 	return res, nil
+}
+
+func longestPrefix[V any](key string, m map[string]V) string {
+	best := ""
+	for k := range m {
+		if strings.HasPrefix(key, k) && len(k) > len(best) {
+			best = k
+		}
+	}
+	return best
 }
 
 func (f *fakeRunner) mutating() []string {
@@ -109,7 +126,13 @@ const (
 	             {"name":"ro-proj","ownerName":"x","ownerType":"org","region":"eu","capabilities":{"canCreateRepository":false}}]`
 	brainInfoInstalled = "Name:        brain\nInstalled:   v0.5.1 (from https://github.com/entireio/entire-brain)\n"
 	noOrigin           = "remote \"origin\" not found; pass /gh/<owner>/<repo> or /et/<project>/<repo> explicitly\n"
+	notShared          = "repo /et/octo-proj/my-app not found or not shared with you\n"
 )
+
+// notThenFound is `repo view /et/...` before and after the create.
+func notThenFound(view string) []response {
+	return []response{{stderr: notShared, exit: 1}, {stdout: view}}
+}
 
 // newRepo makes a temp git repo with one commit and an optional origin.
 func newRepo(t *testing.T, origin string) string {
@@ -184,8 +207,9 @@ func TestFreshRepoCreatePath(t *testing.T) {
 		"entire status":            {stdout: statusOff},
 		"entire project list":      {stdout: projects},
 		"entire repo create":       {stdout: `{"id":"r1","name":"my-app","path":"/et/octo-proj/my-app","remote":"entire://aws-eu-central-1.entire.io/et/octo-proj/my-app"}`},
-		"entire repo view /et/":    {stdout: `{"repo":"/et/octo-proj/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api"}`},
 		"entire plugin info brain": {stdout: brainInfoInstalled},
+	}, queue: map[string][]response{
+		"entire repo view /et/": notThenFound(`{"repo":"/et/octo-proj/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api"}`),
 	}}
 	w, out := setup(t, dir, f, ui.DefaultsPrompter{}, Options{Yes: true})
 	if err := w.Run(context.Background()); err != nil {
@@ -194,7 +218,8 @@ func TestFreshRepoCreatePath(t *testing.T) {
 	assertCalls(t, f.mutating(), []string{
 		"entire enable --agent claude-code",
 		"entire repo create my-app --project octo-proj --json --visibility private",
-		"entire repo remote add origin /et/octo-proj/my-app",
+		// The create's own clone URL is written directly: no by-name lookup.
+		"git remote add origin entire://aws-eu-central-1.entire.io/et/octo-proj/my-app",
 		"git push -u origin main",
 		"entire brain setup --no-backfill --no-daemon",
 		"entire brain connect",
@@ -310,8 +335,9 @@ func TestCreateKeepsGitHubOriginAndUsesEntireRemote(t *testing.T) {
 		"entire status":            {stdout: statusClaude},
 		"entire repo view --json":  {stderr: `no repo matching "/gh/acme/widgets"`, exit: 1},
 		"entire repo create":       {stdout: `{"path":"/et/octo-proj/widgets"}`},
-		"entire repo view /et/":    {stdout: `{"repo":"/et/octo-proj/widgets","status":"ready","repoId":"R3","apiUrl":"https://eu.api"}`},
 		"entire plugin info brain": {stdout: brainInfoInstalled},
+	}, queue: map[string][]response{
+		"entire repo view /et/": notThenFound(`{"repo":"/et/octo-proj/widgets","status":"ready","repoId":"R3","apiUrl":"https://eu.api"}`),
 	}}
 	yes := true
 	w, out := setup(t, dir, f, ui.DefaultsPrompter{}, Options{Yes: true, RepoMode: "create", Project: "octo-proj", RepoName: "widgets", Brain: &yes})
@@ -360,4 +386,102 @@ func TestBrainBuiltButNotConnectedOnlyConnects(t *testing.T) {
 		t.Fatalf("Run: %v\n%s", err, out)
 	}
 	assertCalls(t, f.mutating(), []string{"entire brain connect"})
+}
+
+func TestRemoteAddRetriesWhileNewRepoPropagates(t *testing.T) {
+	dir := newRepo(t, "")
+	f := &fakeRunner{responses: map[string]response{
+		"entire auth status": {stdout: authLoggedIn},
+		"entire status":      {stdout: statusClaude},
+		// No "remote" field, so the wizard falls back to `repo remote add`.
+		"entire repo create": {stdout: `{"path":"/et/octo-proj/my-app"}`},
+	}, queue: map[string][]response{
+		"entire repo view /et/":  notThenFound(`{"repo":"/et/octo-proj/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api"}`),
+		"entire repo remote add": {{stderr: notShared, exit: 1}, {stderr: notShared, exit: 1}, {}},
+	}}
+	var slept []time.Duration
+	old := sleep
+	sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	t.Cleanup(func() { sleep = old })
+
+	no := false
+	w, out := setup(t, dir, f, ui.DefaultsPrompter{}, Options{Yes: true, Project: "octo-proj", Brain: &no})
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	assertCalls(t, f.mutating(), []string{
+		"entire repo create my-app --project octo-proj --json --visibility private",
+		"entire repo remote add origin /et/octo-proj/my-app",
+		"entire repo remote add origin /et/octo-proj/my-app",
+		"entire repo remote add origin /et/octo-proj/my-app",
+		"git push -u origin main",
+	})
+	if len(slept) != 2 {
+		t.Errorf("slept %v, want 2 backoffs", slept)
+	}
+	if got := statusOf(w, stepRepo); got != StatusDone {
+		t.Errorf("repo status = %q, want done", got)
+	}
+}
+
+func TestRemoteAddGivesUpAfterRetries(t *testing.T) {
+	dir := newRepo(t, "")
+	f := &fakeRunner{responses: map[string]response{
+		"entire auth status":     {stdout: authLoggedIn},
+		"entire status":          {stdout: statusClaude},
+		"entire repo create":     {stdout: `{"path":"/et/octo-proj/my-app"}`},
+		"entire repo remote add": {stderr: notShared, exit: 1},
+	}, queue: map[string][]response{
+		"entire repo view /et/": {{stderr: notShared, exit: 1}},
+	}}
+	old := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	t.Cleanup(func() { sleep = old })
+
+	no := false
+	w, out := setup(t, dir, f, ui.DefaultsPrompter{}, Options{Yes: true, Project: "octo-proj", Brain: &no})
+	if err := w.Run(context.Background()); !errors.Is(err, ErrFailed) {
+		t.Fatalf("Run err = %v, want ErrFailed\n%s", err, out)
+	}
+	adds := 0
+	for _, c := range f.mutating() {
+		if strings.HasPrefix(c, "entire repo remote add") {
+			adds++
+		}
+	}
+	if adds != len(remoteAddDelays)+1 {
+		t.Errorf("remote add attempts = %d, want %d", adds, len(remoteAddDelays)+1)
+	}
+	if !strings.Contains(out.String(), "entire repo remote add origin /et/octo-proj/my-app") {
+		t.Errorf("output should give the manual recovery command\n%s", out)
+	}
+}
+
+func TestExistingRepoIsLinkedNotRecreated(t *testing.T) {
+	// The state a half-finished earlier run leaves behind: the repo exists on
+	// Entire but the checkout has no remote.
+	dir := newRepo(t, "")
+	view := `{"repo":"/et/octo-proj/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api",
+	          "placements":[{"cluster":"aws-eu-central-1.entire.io","role":"primary","status":"ready","cloneUrl":"entire://aws-eu-central-1.entire.io/et/octo-proj/my-app"}]}`
+	f := &fakeRunner{responses: map[string]response{
+		"entire auth status":       {stdout: authLoggedIn},
+		"entire status":            {stdout: statusClaude},
+		"entire repo view /et/":    {stdout: view},
+		"entire plugin info brain": {stdout: brainInfoInstalled},
+	}}
+	p := &scriptedPrompter{}
+	w, out := setup(t, dir, f, p, Options{Project: "octo-proj", RepoName: "my-app", Visibility: "private"})
+	if err := w.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	assertCalls(t, f.mutating(), []string{
+		"git remote add origin entire://aws-eu-central-1.entire.io/et/octo-proj/my-app",
+		"git push -u origin main",
+		"entire brain setup --no-backfill --no-daemon",
+		"entire brain connect",
+	})
+	asked := strings.Join(p.asked, "\n")
+	if !strings.Contains(asked, "existing /et/octo-proj/my-app") {
+		t.Errorf("should ask before linking an existing repo; asked:\n%s", asked)
+	}
 }

@@ -18,8 +18,13 @@ echo "$*" >> "$FAKE_ENTIRE_LOG"
 case "$*" in
   "auth status --json") echo '{"logged_in":true,"user":"github:octo","jurisdiction":"eu"}' ;;
   "status --json") echo '{"enabled":false,"agents":null,"error":"not set up"}' ;;
-  "repo view /et/"*) echo '{"repo":"/et/demo/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api"}' ;;
-  "repo create"*) echo '{"path":"/et/demo/my-app"}'; echo; echo 'Update available! 0.13.4 -> 0.14.0' ;;
+  "repo view /et/"*)
+    if [ -f "$FAKE_STATE/created" ]; then
+      echo '{"repo":"/et/demo/my-app","status":"ready","repoId":"R1","apiUrl":"https://eu.api"}'
+    else
+      echo 'repo /et/demo/my-app not found or not shared with you' >&2; exit 1
+    fi ;;
+  "repo create"*) touch "$FAKE_STATE/created"; echo '{"path":"/et/demo/my-app"}'; echo; echo 'Update available! 0.13.4 -> 0.14.0' ;;
   "repo remote add"*) git remote add "$4" "$FAKE_BARE_REMOTE" ;;
   "plugin info brain") printf 'Name: brain\nInstalled:   v0.5.1 (from x)\n' ;;
 esac
@@ -56,6 +61,7 @@ func TestEndToEndWithFakeEntire(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_ENTIRE_LOG", logFile)
 	t.Setenv("FAKE_BARE_REMOTE", bare)
+	t.Setenv("FAKE_STATE", t.TempDir())
 	t.Setenv("ENTIRE_REPO_ROOT", "")
 	t.Setenv("ENTIRE_TEST_TTY", "0")
 	t.Chdir(repo)
@@ -71,6 +77,7 @@ func TestEndToEndWithFakeEntire(t *testing.T) {
 		"auth status --json",
 		"status --json",
 		"enable --agent claude-code",
+		"repo view /et/demo/my-app --json",
 		"repo create my-app --project demo --json --visibility private",
 		"repo remote add origin /et/demo/my-app",
 		"repo view /et/demo/my-app --json",

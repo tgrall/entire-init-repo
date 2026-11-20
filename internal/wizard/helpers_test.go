@@ -27,3 +27,16 @@ func TestValidateName(t *testing.T) {
 		}
 	}
 }
+
+func TestValidEntireURL(t *testing.T) {
+	for _, ok := range []string{"entire://aws-eu-central-1.entire.io/et/p/r"} {
+		if !validEntireURL(ok) {
+			t.Errorf("validEntireURL(%q) = false", ok)
+		}
+	}
+	for _, bad := range []string{"", "https://x/et/p/r", "entire://", "entire:///et/p/r", "entire://real@evil.com/et/p/r", "entire://host"} {
+		if validEntireURL(bad) {
+			t.Errorf("validEntireURL(%q) = true", bad)
+		}
+	}
+}
