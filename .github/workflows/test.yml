@@ -28,4 +28,4 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build
-        run: CGO_ENABLED=0 go build -o /dev/null ./cmd/entire-init
+        run: CGO_ENABLED=0 go build -o /dev/null ./cmd/entire-init-repo

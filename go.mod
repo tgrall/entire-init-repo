@@ -1,4 +1,4 @@
-module github.com/entireio/entire-init
+module github.com/entireio/entire-init-repo
 
 go 1.27.3
 

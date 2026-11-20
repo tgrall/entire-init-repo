@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-init/internal/detect"
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/detect"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 // fakeRunner answers `entire` commands from a table keyed by the joined

@@ -25,10 +25,10 @@ go vet ./...
 
 [tasks.build]
 description = "Build the plugin binary"
-run = "CGO_ENABLED=0 go build -trimpath -o entire-init ./cmd/entire-init"
+run = "CGO_ENABLED=0 go build -trimpath -o entire-init-repo ./cmd/entire-init-repo"
 
 [tasks.install]
-description = "Build and install the plugin into the local Entire CLI (entire init)"
+description = "Build and install the plugin into the local Entire CLI (entire init-repo)"
 run = "scripts/install-local.sh"
 
 [tasks.check]

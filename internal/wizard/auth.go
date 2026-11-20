@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 const stepAuth = "Entire account"
@@ -29,7 +29,7 @@ func (w *Wizard) stepAuth(ctx context.Context) error {
 	w.Out.Warn("You are not logged in to Entire.")
 	if !CanLogin {
 		w.record(stepAuth, StatusFailed, "not logged in")
-		w.Out.Fail("Run %s in a terminal, then re-run %s.", ui.Code("entire login"), ui.Code("entire init"))
+		w.Out.Fail("Run %s in a terminal, then re-run %s.", ui.Code("entire login"), ui.Code("entire init-repo"))
 		return nil
 	}
 	yes, err := w.P.Confirm("Log in to Entire now?", "Needed to create or mirror a repository and to connect Brain.", true)

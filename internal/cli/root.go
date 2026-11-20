@@ -1,4 +1,4 @@
-// Package cli wires the cobra command for the entire-init plugin.
+// Package cli wires the cobra command for the entire-init-repo plugin.
 package cli
 
 import (
@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/entireio/entire-init/internal/detect"
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
-	"github.com/entireio/entire-init/internal/wizard"
+	"github.com/entireio/entire-init-repo/internal/detect"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/wizard"
 )
 
 // Exit codes.
@@ -67,9 +67,9 @@ type flags struct {
 func newRootCmd(version string, stdout io.Writer, code *int) *cobra.Command {
 	var f flags
 	cmd := &cobra.Command{
-		Use:   "entire-init",
+		Use:   "entire-init-repo",
 		Short: "Set up this repository on Entire: agents, sessions, repo and Brain",
-		Long: `entire init walks you through onboarding the current repository onto Entire:
+		Long: `entire init-repo walks you through onboarding the current repository onto Entire:
 
   1. checks the git repository (offers git init / an initial commit)
   2. logs you in to Entire if needed
@@ -81,10 +81,10 @@ func newRootCmd(version string, stdout io.Writer, code *int) *cobra.Command {
 Every step detects what is already in place and skips it, so it is safe to
 re-run. Everything is done by running existing entire commands, which are
 printed as they run.`,
-		Example: `  entire init
-  entire init --dry-run
-  entire init --yes --agents claude-code,codex --repo mirror --no-brain
-  entire init --repo create --project my-project --repo-name api --visibility private`,
+		Example: `  entire init-repo
+  entire init-repo --dry-run
+  entire init-repo --yes --agents claude-code,codex --repo mirror --no-brain
+  entire init-repo --repo create --project my-project --repo-name api --visibility private`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,

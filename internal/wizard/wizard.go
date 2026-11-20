@@ -1,4 +1,4 @@
-// Package wizard implements the `entire init` onboarding flow.
+// Package wizard implements the `entire init-repo` onboarding flow.
 //
 // Each step detects the current state first, skips itself when the work is
 // already done, prompts only for what is missing, and applies the change by
@@ -12,8 +12,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 // Options carries command-line answers. Zero values mean "ask".
@@ -98,7 +98,7 @@ func (w *Wizard) Run(ctx context.Context) error {
 	if w.Opts.DryRun {
 		sub += " (dry run: changes are printed, not made)"
 	}
-	w.Out.Banner("entire init", sub)
+	w.Out.Banner("entire init-repo", sub)
 
 	for i, s := range steps {
 		w.currentStepNo = i + 1

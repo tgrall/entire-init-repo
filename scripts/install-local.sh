@@ -11,7 +11,7 @@ fi
 
 version=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || printf 'dev')}
 CGO_ENABLED="${CGO_ENABLED:-0}" go build -trimpath \
-	-ldflags "-X main.version=$version" -o entire-init ./cmd/entire-init
+	-ldflags "-X main.version=$version" -o entire-init-repo ./cmd/entire-init-repo
 
-entire plugin install ./entire-init --force
-entire init version
+entire plugin install ./entire-init-repo --force
+entire init-repo version

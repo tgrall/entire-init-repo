@@ -11,7 +11,7 @@ import (
 
 // RepoRoot returns the git worktree root. The Entire CLI exports
 // ENTIRE_REPO_ROOT to plugins run inside a repo; when invoked directly as
-// `entire-init` we fall back to git.
+// `entire-init-repo` we fall back to git.
 func RepoRoot(ctx context.Context, cwd string) (string, bool) {
 	if r := os.Getenv("ENTIRE_REPO_ROOT"); r != "" {
 		return r, true

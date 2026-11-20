@@ -3,9 +3,9 @@ package wizard
 import (
 	"context"
 
-	"github.com/entireio/entire-init/internal/detect"
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/detect"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 const stepGit = "Git repository"

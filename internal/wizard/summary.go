@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/entireio/entire-init/internal/detect"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/detect"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 func (w *Wizard) printSummary() {
@@ -47,10 +47,10 @@ func (w *Wizard) nextSteps() []string {
 	}
 
 	if !w.loggedIn() && !w.Opts.DryRun {
-		s = append(s, "Log in: "+ui.Code("entire login")+", then re-run "+ui.Code("entire init")+".")
+		s = append(s, "Log in: "+ui.Code("entire login")+", then re-run "+ui.Code("entire init-repo")+".")
 	}
 	if w.Opts.DryRun {
-		s = append(s, "Run "+ui.Code("entire init")+" without --dry-run to apply these changes.")
+		s = append(s, "Run "+ui.Code("entire init-repo")+" without --dry-run to apply these changes.")
 	}
 
 	// Agents & sessions.

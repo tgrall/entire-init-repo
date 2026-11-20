@@ -3,8 +3,8 @@ package wizard
 import (
 	"context"
 
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 const stepBrain = "Entire Brain"
@@ -23,7 +23,7 @@ func (w *Wizard) stepBrain(ctx context.Context) error {
 	}
 	if !want {
 		w.record(stepBrain, StatusSkipped, "skipped by choice")
-		w.Out.Info("Skipped. Set it up later with %s.", ui.Code("entire init"))
+		w.Out.Info("Skipped. Set it up later with %s.", ui.Code("entire init-repo"))
 		return nil
 	}
 	if !w.isRepo || !w.hasCommits {

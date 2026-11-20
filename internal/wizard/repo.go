@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-init/internal/detect"
-	"github.com/entireio/entire-init/internal/hostcli"
-	"github.com/entireio/entire-init/internal/ui"
+	"github.com/entireio/entire-init-repo/internal/detect"
+	"github.com/entireio/entire-init-repo/internal/hostcli"
+	"github.com/entireio/entire-init-repo/internal/ui"
 )
 
 const stepRepo = "Entire repository"
@@ -147,7 +147,7 @@ func (w *Wizard) mirrorRepo(ctx context.Context) error {
 	case entry.Status == "owner-only":
 		w.record(stepRepo, StatusFailed, "GitHub App lacks access to "+ownerRepo)
 		w.Out.Fail("The Entire GitHub App cannot access %s yet.", ownerRepo)
-		w.Out.Info("Grant it access to the repository in GitHub, then re-run %s.", ui.Code("entire init"))
+		w.Out.Info("Grant it access to the repository in GitHub, then re-run %s.", ui.Code("entire init-repo"))
 		return nil
 	case entry.Status != "available":
 		w.Out.OK("%s is already mirrored %s", ui.Bold(ref), ui.Muted("(status: "+entry.Status+")"))
@@ -260,7 +260,7 @@ func (w *Wizard) createRepo(ctx context.Context) error {
 	if existing, err := w.Client.RepoView(ctx, ref); err == nil {
 		w.Out.Info("%s already exists on Entire.", ui.Bold(ref))
 		link, err := w.P.Confirm("Link this repository to the existing "+ref+"?",
-			"Adds it as a git remote and pushes the current branch. Choose No to pick another name with: entire init --repo-name <name>", true)
+			"Adds it as a git remote and pushes the current branch. Choose No to pick another name with: entire init-repo --repo-name <name>", true)
 		if err != nil {
 			return err
 		}
